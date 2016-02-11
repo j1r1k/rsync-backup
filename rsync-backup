@@ -1,0 +1,60 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ ${#} != 1 ]; then
+  echo "Usage: ${0} CONFIG"
+  exit 1
+fi
+
+if [ ! -r "${1}" ]; then
+  echo "Cannot read CONFIG file"
+  exit 1
+fi
+
+readonly HASH=( $(md5sum "${1}") )
+readonly LOCK="/tmp/rsync-backup.${HASH[0]}"
+
+if [ -e "${LOCK}" ]; then
+  echo "Backup for ${1} is already running. Exiting"
+  exit 1
+else
+  touch "${LOCK}"
+fi
+
+function finish() {
+  if [ -e "${LOCK}" ]; then
+    rm "${LOCK}"
+  fi
+}
+
+trap finish EXIT
+
+source "${1}"
+
+for HOOK in "${BEFORE_HOOKS[@]}"; do
+  eval "${HOOK}"
+done
+
+if [ ! -d "${TARGET}" ]; then
+  echo "Target directory does not exist. Exiting"
+  exit 1
+fi
+
+for DIR in "${BACKUP[@]}"; do
+  TARGETDIR=""
+  if [ "${FLAT}" = "true" ]; then
+    TARGETDIR="${TARGET}/"$(basename "${DIR}")
+  else
+    TARGETDIR="${TARGET}/${DIR}"
+  fi
+
+  if [ ! -d "${TARGETDIR}" ]; then
+    mkdir -p "${TARGETDIR}"
+  fi
+  rsync "${PARAMS[@]}" "${DIR}/" "${TARGETDIR}"
+done
+
+for HOOK in "${AFTER_HOOKS[@]}"; do
+  eval "${HOOK}"
+done
+
